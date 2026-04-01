@@ -322,6 +322,20 @@ class Hoop:
                 bounced = True
         return bounced
 
+    def check_backboard_collision(self, ball: Ball) -> bool:
+        """Bounce ball off the front face of the backboard."""
+        board_face = BACKBOARD_X - 14   # left (front) face of the backboard
+        board_top  = self.y - 75
+        board_bot  = self.y + 35
+        if (ball.vx > 0
+                and ball.x + BALL_RADIUS >= board_face
+                and ball.x < board_face + 20        # prevent tunnelling
+                and board_top <= ball.y <= board_bot):
+            ball.x  = board_face - BALL_RADIUS
+            ball.vx = -abs(ball.vx) * ELASTICITY
+            return True
+        return False
+
 
 # ─────────────────────────────────────────────────────
 # PARTICLE SYSTEM
@@ -399,20 +413,20 @@ def draw_court(surf: pygame.Surface):
     pygame.draw.line(surf, C_FLOOR_LN,
                      (0, SCREEN_H - 80), (SCREEN_W, SCREEN_H - 80), 3)
 
-    # Three-point arc (decorative, not functional)
+    # Three-point arc – centred at the basket/hoop side, opening toward the shooter
     pygame.draw.arc(surf, C_FLOOR_LN,
-                    pygame.Rect(BALL_ORIGIN_X - 80, SCREEN_H - 310, 420, 380),
+                    pygame.Rect(HOOP_BASE_X - 200, SCREEN_H - 310, 400, 380),
                     math.radians(15), math.radians(165), 2)
 
-    # Free-throw lane
-    pygame.draw.rect(surf, C_FLOOR_LN,
-                     pygame.Rect(BALL_ORIGIN_X + 20, SCREEN_H - 80, 160, 4), 0)
-    pygame.draw.line(surf, C_FLOOR_LN,
-                     (BALL_ORIGIN_X + 20, SCREEN_H - 80),
-                     (BALL_ORIGIN_X + 20, SCREEN_H - 200), 2)
-    pygame.draw.line(surf, C_FLOOR_LN,
-                     (BALL_ORIGIN_X + 180, SCREEN_H - 80),
-                     (BALL_ORIGIN_X + 180, SCREEN_H - 200), 2)
+    # Free-throw lane – box on the hoop side (from baseline toward shooter)
+    lane_left  = HOOP_BASE_X - 170   # free-throw line
+    lane_right = BACKBOARD_X         # baseline
+    lane_floor = SCREEN_H - 80
+    lane_top   = SCREEN_H - 200
+    pygame.draw.line(surf, C_FLOOR_LN, (lane_left, lane_floor), (lane_right, lane_floor), 3)
+    pygame.draw.line(surf, C_FLOOR_LN, (lane_left, lane_floor), (lane_left, lane_top), 2)
+    pygame.draw.line(surf, C_FLOOR_LN, (lane_right, lane_floor), (lane_right, lane_top), 2)
+    pygame.draw.line(surf, C_FLOOR_LN, (lane_left, lane_top), (lane_right, lane_top), 2)
 
 
 def draw_aim_arrow(surf: pygame.Surface, origin: tuple, drag: tuple, power: float):
@@ -731,6 +745,10 @@ class Game:
 
             # Rim collision (bounce off knobs)
             if self.hoop.check_rim_collision(self.ball):
+                self.sounds.play("bounce")
+
+            # Backboard collision
+            if self.hoop.check_backboard_collision(self.ball):
                 self.sounds.play("bounce")
 
             # Ball left the screen
