@@ -295,19 +295,30 @@ class SoundManager:
 # ─────────────────────────────────────────────────────
 # BALL
 # ─────────────────────────────────────────────────────
+
+def _gen_pebbles() -> list:
+    """
+    Generate fixed leather-pebble (x, y) offsets that lie inside the ball.
+    Defined at module level so the fixed-seed RNG is accessible without
+    hitting Python 3's list-comprehension scope restriction.
+    """
+    rng    = random.Random(7)   # fixed seed → same pattern every run
+    result = []
+    while len(result) < 16:
+        px = rng.uniform(-BALL_R * 0.82, BALL_R * 0.82)
+        py = rng.uniform(-BALL_R * 0.82, BALL_R * 0.82)
+        if math.hypot(px, py) < BALL_R * 0.75:   # keep only if inside the circle
+            result.append((px, py))
+    return result
+
+
 class Ball:
     """Physics, rendering (textured sphere), and trail."""
 
     TRAIL_LEN = 24
-    # Precomputed pebble offsets for leather texture (fixed seed)
-    _rng = random.Random(7)
-    _PEBBLES = [
-        (_rng.uniform(-BALL_R * 0.82, BALL_R * 0.82),
-         _rng.uniform(-BALL_R * 0.82, BALL_R * 0.82))
-        for _ in range(22)
-        if math.hypot(_rng.uniform(-BALL_R * 0.82, BALL_R * 0.82),
-                      _rng.uniform(-BALL_R * 0.82, BALL_R * 0.82)) < BALL_R * 0.78
-    ]
+    # Precomputed pebble offsets for leather texture (module-level helper avoids
+    # the Python 3 rule that list comprehensions cannot see class-scope names)
+    _PEBBLES = _gen_pebbles()
 
     def __init__(self, template: pygame.Surface, tmpl_off: int):
         self._tmpl     = template
