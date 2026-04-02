@@ -1,5 +1,5 @@
 """
-Basketball Fun Game  v2.0
+Basketball Fun Game  v2.1
 =========================
 A physics-based basketball shooting game built with Pygame.
 
@@ -23,33 +23,32 @@ import json
 import os
 
 # ─────────────────────────────────────────────────────
-# CONSTANTS  (all positions are in the 960×620 canvas;
-#             pygame.SCALED handles fullscreen scaling)
+# CONSTANTS
 # ─────────────────────────────────────────────────────
 SCREEN_W, SCREEN_H = 960, 620
 FPS        = 60
-GRAVITY    = 850.0          # px/s²
-BALL_R     = 18             # ball radius in px
-RIM_R      = 7              # rim-knob radius
-RIM_HALF   = 32             # half the rim opening width
+GRAVITY    = 850.0
+BALL_R     = 18
+RIM_R      = 7
+RIM_HALF   = 32
 NET_H      = 42
 MAX_SHOTS  = 15
-MAX_DRAG   = 220.0          # drag px → max power
-MIN_POWER  = 280.0          # px/s
-MAX_POWER  = 1200.0         # px/s
-ELASTICITY = 0.45           # energy fraction kept after rim bounce
+MAX_DRAG   = 220.0
+MIN_POWER  = 280.0
+MAX_POWER  = 1200.0
+ELASTICITY = 0.45
 
-FLOOR_Y  = SCREEN_H - 80   # y coordinate of the floor surface
+FLOOR_Y  = SCREEN_H - 80
 BALL_X0  = 130
 BALL_Y0  = FLOOR_Y - BALL_R - 1
-HOOP_X0  = 740              # rim centre x
-HOOP_Y0  = 260              # rim centre y (default)
-BOARD_X  = 840              # backboard face x
+HOOP_X0  = 740
+HOOP_Y0  = 260
+BOARD_X  = 840
 
 SAVE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "best_score.json")
 
-# ── Difficulty presets – applied from game start, not mid-game ──────────
+# ── Difficulty presets ───────────────────────────────
 DIFFICULTIES = {
     "easy": {
         "label":      "EASY",
@@ -78,13 +77,14 @@ DIFF_ORDER = ["easy", "medium", "hard"]
 # ── Colors ───────────────────────────────────────────
 C_WHITE   = (255, 255, 255)
 C_BLACK   = (  0,   0,   0)
-C_ORANGE  = (225, 108, 18)
-C_DK_ORG  = (150,  48,  0)
-C_RIM     = (198,  38,  8)
-C_RIM_HI  = (245,  85, 45)
-C_BOARD   = (195, 210, 228)
-C_BOARD_E = (135, 150, 168)
-C_NET     = (205, 205, 205)
+C_ORANGE  = (228, 100, 18)
+C_DK_ORG  = (140,  42,  0)
+C_SEAM    = ( 68,  14,  0)   # near-black seam lines on ball
+C_RIM     = (200,  38,  8)
+C_RIM_HI  = (248,  88, 48)
+C_BOARD   = (192, 210, 230)
+C_BOARD_E = (130, 148, 168)
+C_NET     = (200, 200, 200)
 C_COMBO   = (255, 215,   0)
 C_WIND_C  = ( 85, 168, 255)
 
@@ -109,144 +109,229 @@ def save_best_score(score: int):
 
 
 # ─────────────────────────────────────────────────────
-# PRECOMPUTED SURFACES  (called after pygame.init())
+# PRECOMPUTED SURFACES
 # ─────────────────────────────────────────────────────
+
 def _build_arena_bg() -> pygame.Surface:
-    """Dark indoor-arena gradient with three overhead spotlight cones."""
+    """
+    Indoor NBA-style arena:
+    - Deep gradient background (ceiling → court level)
+    - Three overhead spotlight cones
+    - Animated-style crowd silhouettes in tiered rows
+    - Hanging championship banners
+    - Scoreboard structure on the right wall
+    """
     surf = pygame.Surface((SCREEN_W, FLOOR_Y))
 
-    # Vertical gradient: near-black ceiling → deep navy toward court
+    # ── Base gradient: near-black ceiling → deep navy at floor ──
     for y in range(FLOOR_Y):
         t = y / FLOOR_Y
-        pygame.draw.line(surf,
-                         (int(6 + 18 * t), int(8 + 14 * t), int(22 + 28 * t)),
-                         (0, y), (SCREEN_W, y))
+        r = int(5  + 20 * t)
+        g = int(6  + 16 * t)
+        b = int(18 + 32 * t)
+        pygame.draw.line(surf, (r, g, b), (0, y), (SCREEN_W, y))
 
-    # Overhead light cones (three spotlights)
+    # ── Overhead spotlight cones (3 lights) ──
     light = pygame.Surface((SCREEN_W, FLOOR_Y), pygame.SRCALPHA)
     for lx in (SCREEN_W // 5, SCREEN_W // 2, 4 * SCREEN_W // 5):
-        for i in range(1, 38):
-            t     = i / 38
-            alpha = int(22 * (1 - t) ** 2)
-            w     = int(30 + 180 * t)
-            h_c   = int(FLOOR_Y * t)
-            pygame.draw.ellipse(light, (255, 245, 215, alpha),
-                                pygame.Rect(lx - w // 2, 10, w, h_c))
+        for i in range(1, 45):
+            t     = i / 45
+            alpha = int(18 * (1 - t) ** 1.8)
+            w     = int(20 + 200 * t)
+            hc    = int(FLOOR_Y * t)
+            pygame.draw.ellipse(light, (255, 248, 220, alpha),
+                                pygame.Rect(lx - w // 2, 8, w, hc))
     surf.blit(light, (0, 0))
 
-    # Crowd-silhouette rows near ceiling
+    # ── Ceiling structural elements ──
+    pygame.draw.rect(surf, (4, 4, 14), pygame.Rect(0, 0, SCREEN_W, 12))
+    for bx in range(0, SCREEN_W, 120):
+        pygame.draw.rect(surf, (8, 8, 22), pygame.Rect(bx, 0, 6, 30))
+
+    # ── Championship banners hanging from ceiling ──
+    rng_b = random.Random(77)
+    banner_colors = [
+        (180, 20, 20), (20, 60, 180), (180, 150, 10),
+        (20, 140, 40), (140, 20, 140), (180, 90, 10),
+    ]
+    for bx in range(60, SCREEN_W - 60, 115):
+        col  = rng_b.choice(banner_colors)
+        bw   = rng_b.randint(22, 32)
+        bh   = rng_b.randint(38, 52)
+        rect = pygame.Rect(bx - bw // 2, 0, bw, bh)
+        pygame.draw.rect(surf, col, rect)
+        pygame.draw.rect(surf, (255, 215, 0), rect, 1)
+        # Year text stub (tiny yellow lines)
+        for yi in range(3):
+            pygame.draw.line(surf, (255, 215, 0),
+                             (bx - bw//2 + 4, 10 + yi * 9),
+                             (bx + bw//2 - 4, 10 + yi * 9), 1)
+
+    # ── Tiered crowd rows (4 rows, back to front = small to large) ──
     rng = random.Random(99)
-    for row_y, scale in ((18, 0.9), (48, 1.15), (88, 1.35), (138, 1.6)):
-        for bx in range(0, SCREEN_W, rng.randint(10, 18)):
-            bw  = rng.randint(7, int(14 * scale))
-            bh  = rng.randint(10, int(20 * scale))
-            col = rng.choice(((35, 15, 75), (75, 15, 15),
-                               (15, 50, 15), (60, 50, 10)))
-            pygame.draw.ellipse(surf, col, pygame.Rect(bx, row_y, bw, bh))
-            # head
-            pygame.draw.circle(surf, (185, 145, 110),
-                                (bx + bw // 2, row_y - rng.randint(3, 7)),
-                                rng.randint(3, int(5 * scale)))
+    skin_tones = [(210, 170, 130), (190, 150, 110), (160, 110, 75), (110, 68, 42)]
+    jersey_cols = [
+        (200, 25,  25), (25,  70, 200), (220, 190, 30),
+        (240, 240, 240), (25, 160, 50), (170, 35, 210),
+        (220, 110, 25), (30,  30,  30),
+    ]
+    for row_y, body_h, head_r, gap in (
+        (20,  14,  4, 14),
+        (52,  18,  5, 17),
+        (96,  23,  6, 21),
+        (152, 30,  8, 27),
+    ):
+        x = rng.randint(0, gap)
+        while x < SCREEN_W:
+            jcol  = rng.choice(jersey_cols)
+            scol  = rng.choice(skin_tones)
+            bw    = max(8, body_h - 2)
+            # Body
+            pygame.draw.rect(surf, jcol,
+                             pygame.Rect(x - bw//2, row_y, bw, body_h))
+            # Head
+            pygame.draw.circle(surf, scol, (x, row_y - head_r + 1), head_r)
+            # Raised arm (random chance)
+            if rng.random() < 0.25:
+                arm_x = x + rng.choice((-1, 1)) * (bw // 2 + 4)
+                arm_y = row_y - head_r - 5
+                pygame.draw.line(surf, jcol, (x, row_y + 2),
+                                 (arm_x, arm_y), max(1, bw // 5))
+            x += gap + rng.randint(-3, 5)
+
+    # ── Scoreboard (right wall) ──
+    sb_x, sb_y, sb_w, sb_h = 820, 165, 115, 65
+    pygame.draw.rect(surf, (15, 15, 15),  pygame.Rect(sb_x, sb_y, sb_w, sb_h))
+    pygame.draw.rect(surf, (60, 60, 60),  pygame.Rect(sb_x, sb_y, sb_w, sb_h), 2)
+    # LED-style text stubs
+    for row in range(3):
+        pygame.draw.rect(surf, (180, 50, 0),
+                         pygame.Rect(sb_x + 6, sb_y + 8 + row * 17, sb_w - 12, 10))
+
     return surf
 
 
 def _build_floor_surf() -> pygame.Surface:
-    """Hardwood floor with vertical planks, grain and court markings."""
+    """
+    Hardwood floor: vertical plank strips with grain, court markings.
+    Uses a fixed-seed RNG so the pattern is identical every run.
+    """
     surf = pygame.Surface((SCREEN_W, 80))
     rng  = random.Random(42)
 
     plank_palette = [
-        (172, 112, 46), (164, 107, 43), (179, 119, 50),
-        (168, 110, 45), (176, 116, 49), (161, 104, 41),
-        (174, 113, 47), (169, 110, 44),
+        (175, 114, 48), (166, 108, 44), (182, 121, 52),
+        (170, 111, 46), (178, 118, 50), (163, 106, 42),
+        (176, 115, 48), (171, 111, 45),
     ]
 
-    # Vertical plank strips (left-right oriented boards)
-    x = 0
-    pi = 0
+    # Vertical plank strips
+    x, pi = 0, 0
     while x < SCREEN_W:
         w   = rng.randint(26, 38)
         col = plank_palette[pi % len(plank_palette)]
         pygame.draw.rect(surf, col, pygame.Rect(x, 0, w, 80))
 
-        # Lengthwise grain lines
+        # Wood-grain lines (lengthwise)
         gx = x + rng.randint(4, 10)
         while gx < x + w - 4:
             gc = (max(0, col[0] - rng.randint(8, 18)),
                   max(0, col[1] - rng.randint(6, 14)),
                   max(0, col[2] - rng.randint(4, 10)))
-            pygame.draw.line(surf, gc, (gx, 0), (gx + rng.randint(-6, 6), 80), 1)
+            pygame.draw.line(surf, gc, (gx, 0),
+                             (gx + rng.randint(-6, 6), 80), 1)
             gx += rng.randint(5, 12)
 
-        # Plank-edge shadow (right side)
+        # Plank-edge shadow (right side darker line)
         ec = (max(0, col[0] - 22), max(0, col[1] - 17), max(0, col[2] - 12))
         pygame.draw.line(surf, ec, (x + w - 1, 0), (x + w - 1, 80), 1)
-
         x  += w
         pi += 1
 
-    # Top edge (floor-wall boundary line)
-    pygame.draw.line(surf, (140, 88, 32), (0, 0), (SCREEN_W, 0), 3)
+    # ── Court markings ──
+    mark  = (200, 138, 68)     # painted-line color
+    mark2 = (185, 122, 54)     # slightly darker variant
 
-    # Court markings (painted-on lines – subtle lighter tone)
-    mark = (195, 132, 62)
-    # Free-throw lane box
-    lane_x = BALL_X0 + 10
-    pygame.draw.rect(surf, mark, pygame.Rect(lane_x, 0, 175, 80), 2)
-    # Three-point arc (appears as short vertical marks at floor edge)
-    pygame.draw.line(surf, mark, (lane_x + 195, 0), (lane_x + 195, 12), 2)
+    # Floor-wall boundary
+    pygame.draw.line(surf, (128, 80, 28), (0, 0), (SCREEN_W, 0), 3)
+
+    # Free-throw lane (key) box
+    lane_l = BALL_X0 + 10
+    lane_r = lane_l + 170
+    pygame.draw.rect(surf, mark, pygame.Rect(lane_l, 0, 170, 80), 2)
+
+    # Free-throw semicircle at top of key (visible as a partial ellipse at floor edge)
+    pygame.draw.ellipse(surf, mark,
+                        pygame.Rect(lane_l + 50, -28, 70, 56), 2)
+
+    # Three-point line side extensions
+    pygame.draw.line(surf, mark2, (lane_l - 40,  0), (lane_l - 40, 22), 2)
+    pygame.draw.line(surf, mark2, (lane_r + 80,  0), (lane_r + 80, 22), 2)
+
+    # Baseline
+    pygame.draw.line(surf, mark2, (0, 78), (SCREEN_W, 78), 2)
 
     return surf
 
 
 def _build_ball_template(radius: int) -> tuple[pygame.Surface, int]:
     """
-    Pre-render a sphere-shaded ball surface (no seams).
-    Returns (surface, centre_offset) where centre_offset is the pixel
-    offset from surface top-left to the ball centre.
+    Pre-render a sphere-shaded basketball surface without seam lines.
+    Uses layered semi-transparent circles to simulate diffuse + specular lighting.
+    Returns (surface, centre_offset).
     """
-    pad  = 6          # extra space for drop-shadow
+    pad  = 8
     size = radius * 2 + pad * 2
     surf = pygame.Surface((size, size), pygame.SRCALPHA)
     cx = cy = size // 2
 
-    # Drop shadow (soft ellipse below-right)
-    sh = pygame.Surface((size, size), pygame.SRCALPHA)
-    pygame.draw.ellipse(sh, (0, 0, 0, 55),
-                        pygame.Rect(cx - radius + 5, cy + radius - 5,
-                                    radius * 2 - 2, 10))
-    surf.blit(sh, (0, 0))
+    # ── Drop shadow (soft ellipse below the ball) ──
+    sh = pygame.Surface((size + 10, 16), pygame.SRCALPHA)
+    pygame.draw.ellipse(sh, (0, 0, 0, 50),
+                        pygame.Rect(0, 0, size + 10, 16))
+    surf.blit(sh, (cx - size // 2 - 5, cy + radius - 4))
 
-    # Base sphere (main orange)
-    pygame.draw.circle(surf, C_ORANGE, (cx, cy), radius)
+    # ── Base colour: warm dark orange (shadow side already in it) ──
+    pygame.draw.circle(surf, (195, 78, 12), (cx, cy), radius)
 
-    # Dark shading on the shadow side (bottom-right)
-    dark = pygame.Surface((size, size), pygame.SRCALPHA)
-    off  = radius // 4
-    for r in range(radius - 1, 0, -3):
-        t     = 1 - r / radius
-        alpha = int(70 * t * t)
-        pygame.draw.circle(dark, (55, 15, 0, alpha),
-                           (cx + off, cy + off), r)
-    surf.blit(dark, (0, 0))
+    # ── Mid-tone layer: slightly lighter, offset top-left ──
+    ml = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.circle(ml, (228, 100, 18, 210),
+                       (cx - radius // 6, cy - radius // 6),
+                       int(radius * 0.88))
+    surf.blit(ml, (0, 0))
 
-    # Specular highlight (top-left, warm white)
-    hl = pygame.Surface((size, size), pygame.SRCALPHA)
-    hc = radius // 3
-    for r in range(hc, 0, -1):
-        alpha = int(100 * (1 - r / hc) ** 1.5)
-        pygame.draw.circle(hl, (255, 235, 190, alpha),
-                           (cx - radius // 3, cy - radius // 3), r)
-    surf.blit(hl, (0, 0))
+    # ── Bright area: wide diffuse light from upper-left ──
+    bl = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.circle(bl, (248, 148, 52, 130),
+                       (cx - radius // 4, cy - radius // 4),
+                       int(radius * 0.65))
+    surf.blit(bl, (0, 0))
 
-    # Outer edge (slight darkening at rim for depth)
-    pygame.draw.circle(surf, C_DK_ORG, (cx, cy), radius, 2)
+    # ── Dark vignette rim: subtle darkening at edge for roundness ──
+    vg = pygame.Surface((size, size), pygame.SRCALPHA)
+    for ri in range(radius, radius - 5, -1):
+        alpha = int(55 * (radius - ri + 1) / 5)
+        pygame.draw.circle(vg, (0, 0, 0, alpha), (cx, cy), ri, 2)
+    surf.blit(vg, (0, 0))
+
+    # ── Specular highlight: small bright oval top-left ──
+    spec = pygame.Surface((size, size), pygame.SRCALPHA)
+    sr   = max(4, radius // 3)
+    for ri in range(sr, 0, -1):
+        t = 1 - ri / sr
+        pygame.draw.circle(spec, (255, 250, 235, int(145 * t ** 1.4)),
+                           (cx - radius // 3, cy - radius // 3), ri)
+    surf.blit(spec, (0, 0))
+
+    # ── Hard outer edge ──
+    pygame.draw.circle(surf, (130, 38, 0), (cx, cy), radius, 2)
 
     return surf, cx
 
 
 # ─────────────────────────────────────────────────────
-# SOUND  (procedural – no .wav files needed)
+# SOUND
 # ─────────────────────────────────────────────────────
 class SoundManager:
     def __init__(self):
@@ -295,34 +380,16 @@ class SoundManager:
 # ─────────────────────────────────────────────────────
 # BALL
 # ─────────────────────────────────────────────────────
-
-def _gen_pebbles() -> list:
-    """
-    Generate fixed leather-pebble (x, y) offsets that lie inside the ball.
-    Defined at module level so the fixed-seed RNG is accessible without
-    hitting Python 3's list-comprehension scope restriction.
-    """
-    rng    = random.Random(7)   # fixed seed → same pattern every run
-    result = []
-    while len(result) < 16:
-        px = rng.uniform(-BALL_R * 0.82, BALL_R * 0.82)
-        py = rng.uniform(-BALL_R * 0.82, BALL_R * 0.82)
-        if math.hypot(px, py) < BALL_R * 0.75:   # keep only if inside the circle
-            result.append((px, py))
-    return result
-
-
 class Ball:
-    """Physics, rendering (textured sphere), and trail."""
+    """Physics, sphere rendering with authentic seam lines, and motion trail."""
 
-    TRAIL_LEN = 24
-    # Precomputed pebble offsets for leather texture (module-level helper avoids
-    # the Python 3 rule that list comprehensions cannot see class-scope names)
-    _PEBBLES = _gen_pebbles()
+    TRAIL_LEN  = 26
+    SEAM_STEPS = 30       # line-segment count per seam curve
+    SEAM_AMP   = 0.32     # amplitude of the S-wave seam curves (normalised)
 
     def __init__(self, template: pygame.Surface, tmpl_off: int):
         self._tmpl     = template
-        self._tmpl_off = tmpl_off   # pixel distance from surface edge to ball centre
+        self._tmpl_off = tmpl_off
         self.reset()
 
     def reset(self):
@@ -331,16 +398,16 @@ class Ball:
         self.vx        = 0.0
         self.vy        = 0.0
         self.in_flight = False
-        self.spin      = 0.0        # degrees, drives seam + pebble rotation
+        self.spin      = 0.0        # degrees, cumulative rotation
         self.spin_rate = 0.0
         self.trail: list[tuple[float, float]] = []
 
     def shoot(self, angle_deg: float, speed: float, wind: float = 0.0):
         rad        = math.radians(angle_deg)
         self.vx    = speed * math.cos(rad) + wind
-        self.vy    = -speed * math.sin(rad)   # screen y inverted
+        self.vy    = -speed * math.sin(rad)
         self.in_flight = True
-        self.spin_rate = speed * 0.045
+        self.spin_rate = speed * 0.042
 
     def update(self, dt: float):
         if not self.in_flight:
@@ -348,7 +415,6 @@ class Ball:
         self.trail.append((self.x, self.y))
         if len(self.trail) > self.TRAIL_LEN:
             self.trail.pop(0)
-        # Projectile motion
         self.vy   += GRAVITY * dt
         self.x    += self.vx * dt
         self.y    += self.vy * dt
@@ -358,49 +424,95 @@ class Ball:
     def out_of_bounds(self) -> bool:
         return self.y > SCREEN_H + 60 or self.x < -80 or self.x > SCREEN_W + 80
 
+    # ── Seam drawing ─────────────────────────────────
+
+    def _seam_points(self, cx: int, cy: int, spin_rad: float,
+                     seam_id: int) -> list[tuple[int, int]]:
+        """
+        Return screen-space points for one of the three basketball seam curves.
+
+        Each seam is a great-circle arc expressed as an S-curve in normalised
+        ball-local coordinates, then rotated by the current spin angle.
+
+          Seam 0: S-wave going left → right   (horizontal seam)
+          Seam 1: S-wave going top  → bottom, curving left
+          Seam 2: S-wave going top  → bottom, curving right
+
+        The S-wave formula:  deviation = SEAM_AMP * sin(π * t)  where t ∈ [-1, 1]
+        This creates a smooth curve that passes through the "poles" at the ends.
+        """
+        r     = BALL_R - 2
+        cos_s = math.cos(spin_rad)
+        sin_s = math.sin(spin_rad)
+        pts   = []
+
+        for i in range(self.SEAM_STEPS + 1):
+            t = -1.0 + i * (2.0 / self.SEAM_STEPS)      # t ∈ [-1 .. 1]
+            dev = self.SEAM_AMP * math.sin(math.pi * t)  # S-wave deviation
+
+            if seam_id == 0:        # horizontal: runs L→R, deviates in Y
+                lx, ly = t, dev
+            elif seam_id == 1:      # left-curving vertical: runs T→B, deviates left in X
+                lx, ly = -dev, t
+            else:                   # right-curving vertical: mirror of seam 1
+                lx, ly = dev, t
+
+            # Rotate by spin and scale to ball radius
+            sx = int(cx + (lx * cos_s - ly * sin_s) * r)
+            sy = int(cy + (lx * sin_s + ly * cos_s) * r)
+            pts.append((sx, sy))
+
+        return pts
+
     def draw(self, surf: pygame.Surface):
-        # ── Trail (fading orange ghost circles) ──
+        cx, cy = int(self.x), int(self.y)
+
+        # ── Motion trail ──
         n = len(self.trail)
         for i, (tx, ty) in enumerate(self.trail):
             ratio = (i + 1) / (n + 1)
-            alpha = int(160 * ratio)
-            r     = max(2, int(BALL_R * 0.5 * ratio))
-            s     = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
-            pygame.draw.circle(s, (225, 108, 18, alpha), (r, r), r)
-            surf.blit(s, (int(tx) - r, int(ty) - r))
+            alpha = int(150 * ratio)
+            r_tr  = max(2, int(BALL_R * 0.48 * ratio))
+            ts    = pygame.Surface((r_tr * 2, r_tr * 2), pygame.SRCALPHA)
+            pygame.draw.circle(ts, (228, 100, 18, alpha), (r_tr, r_tr), r_tr)
+            surf.blit(ts, (int(tx) - r_tr, int(ty) - r_tr))
 
-        cx, cy = int(self.x), int(self.y)
-
-        # ── Sphere base (precomputed shading) ──
+        # ── Sphere base (precomputed gradient + shading) ──
         off = self._tmpl_off
         surf.blit(self._tmpl, (cx - off, cy - off))
 
-        # ── Leather pebbles (tiny dots, co-rotate with spin) ──
-        sr  = math.radians(self.spin)
-        cos_s, sin_s = math.cos(sr), math.sin(sr)
-        for (px, py) in self._PEBBLES:
-            # Rotate pebble position by spin angle
-            rx = px * cos_s - py * sin_s
-            ry = px * sin_s + py * cos_s
-            # Only draw if roughly on the "front" hemisphere (positive z proxy)
-            if rx * rx + ry * ry < (BALL_R * 0.85) ** 2:
-                pygame.draw.circle(surf, C_DK_ORG,
-                                   (cx + int(rx), cy + int(ry)), 1)
+        # ── Basketball seam lines ──────────────────────────────────────────
+        #
+        # Three S-curved seams that rotate with the ball's spin.
+        # Seam 0: wavy horizontal line (left-right)
+        # Seam 1: left-curving vertical arc (top-bottom, bending left)
+        # Seam 2: right-curving vertical arc (top-bottom, bending right)
+        #
+        # The curves are clipped to the ball's bounding rectangle so they
+        # never visibly cross outside the ball circle.
+        # ─────────────────────────────────────────────────────────────────
+        spin_rad = math.radians(self.spin)
 
-        # ── Curved seam arcs (two perpendicular half-circles) ──
-        seam_rect = pygame.Rect(cx - BALL_R + 3, cy - BALL_R + 3,
-                                (BALL_R - 3) * 2, (BALL_R - 3) * 2)
-        a0 = math.radians(self.spin)
-        pygame.draw.arc(surf, C_DK_ORG, seam_rect, a0,           a0 + math.pi,       2)
-        pygame.draw.arc(surf, C_DK_ORG, seam_rect, a0 + math.pi * 0.5,
-                        a0 + math.pi * 1.5, 2)
+        old_clip = surf.get_clip()
+        surf.set_clip(pygame.Rect(cx - BALL_R, cy - BALL_R,
+                                  BALL_R * 2, BALL_R * 2))
+
+        for seam_id in range(3):
+            pts = self._seam_points(cx, cy, spin_rad, seam_id)
+            if len(pts) >= 2:
+                pygame.draw.lines(surf, C_SEAM, False, pts, 2)
+
+        surf.set_clip(old_clip)
+
+        # ── Outer edge (re-drawn on top to crisp up the silhouette) ──
+        pygame.draw.circle(surf, (120, 34, 0), (cx, cy), BALL_R, 2)
 
 
 # ─────────────────────────────────────────────────────
 # HOOP
 # ─────────────────────────────────────────────────────
 class Hoop:
-    """Backboard, rim (3-D shaded), net. Supports vertical motion."""
+    """Backboard, rim (3-D shaded), net, and support pole."""
 
     def __init__(self):
         self.x          = float(HOOP_X0)
@@ -434,61 +546,75 @@ class Hoop:
         rx  = int(self.x + RIM_HALF)
         mid = int(self.x)
 
-        # ── Support arm ──
-        pygame.draw.line(surf, (70, 70, 70), (rx + 2, ry - 3), (bx - 12, ry - 3), 6)
-        pygame.draw.line(surf, (95, 95, 95), (rx + 2, ry - 5), (bx - 12, ry - 5), 2)
+        # ── Support pole (floor to backboard) ──
+        pole_x = bx + 4
+        # Pole body
+        pygame.draw.line(surf, (55, 55, 55),
+                         (pole_x - 4, ry + 40), (pole_x - 4, FLOOR_Y), 10)
+        pygame.draw.line(surf, (85, 85, 85),
+                         (pole_x - 7, ry + 40), (pole_x - 7, FLOOR_Y), 2)
+        # Pole base pad
+        pygame.draw.rect(surf, (45, 45, 45),
+                         pygame.Rect(pole_x - 16, FLOOR_Y - 6, 26, 6))
 
-        # ── Backboard body ──
-        board = pygame.Rect(bx - 14, ry - 78, 16, 112)
-        pygame.draw.rect(surf, C_BOARD, board)
-        # Slight inner bevel (lighter left edge, darker right edge)
-        pygame.draw.line(surf, (225, 235, 245), (bx - 13, ry - 77), (bx - 13, ry + 33), 2)
+        # ── Backboard ──
+        board = pygame.Rect(bx - 14, ry - 78, 16, 114)
+
+        # Frosted-glass effect: fill with translucent layers
+        glass = pygame.Surface((16, 114), pygame.SRCALPHA)
+        glass.fill((195, 215, 235, 210))
+        # Thin reflective streak
+        pygame.draw.line(glass, (240, 252, 255, 120), (3, 4), (3, 110), 2)
+        surf.blit(glass, (bx - 14, ry - 78))
+
         pygame.draw.rect(surf, C_BOARD_E, board, 2)
-        # Target rectangle on board
-        pygame.draw.rect(surf, C_RIM, pygame.Rect(bx - 12, ry - 40, 11, 34), 2)
+        # Orange target box
+        pygame.draw.rect(surf, C_RIM,
+                         pygame.Rect(bx - 12, ry - 40, 11, 34), 2)
 
-        # ── Rim (3-D shaded tube) ──
-        # Shadow line under rim
-        pygame.draw.line(surf, (80, 15, 0),
-                         (lx - RIM_R, ry + 4), (rx + RIM_R, ry + 4), 4)
+        # ── Support arm (rim to backboard) ──
+        pygame.draw.line(surf, (70, 70, 70),  (rx + 2, ry - 3), (bx - 14, ry - 3), 7)
+        pygame.draw.line(surf, (100, 100, 100), (rx + 2, ry - 5), (bx - 14, ry - 5), 2)
+
+        # ── Rim: 3-D shaded tube ──
+        # Underside shadow
+        pygame.draw.line(surf, (70, 10, 0),
+                         (lx - RIM_R, ry + 5), (rx + RIM_R, ry + 5), 4)
         # Main rim bar
         pygame.draw.line(surf, C_RIM, (lx, ry), (rx, ry), RIM_R * 2)
-        # Highlight line on top of rim
-        pygame.draw.line(surf, C_RIM_HI, (lx, ry - 3), (rx, ry - 3), 2)
+        # Top highlight
+        pygame.draw.line(surf, C_RIM_HI, (lx + 2, ry - 3), (rx - 2, ry - 3), 2)
+
         # Rim-end knobs
         for kx, ky in [self.left_rim, self.right_rim]:
-            pygame.draw.circle(surf, C_RIM,    (int(kx), int(ky)), RIM_R)
-            pygame.draw.circle(surf, C_RIM_HI, (int(kx), int(ky) - 2), RIM_R // 2)
+            pygame.draw.circle(surf, (160, 28, 4),   (int(kx), int(ky)), RIM_R + 1)
+            pygame.draw.circle(surf, C_RIM,           (int(kx), int(ky)), RIM_R)
+            pygame.draw.circle(surf, C_RIM_HI,        (int(kx), int(ky) - 2), RIM_R // 2)
 
         # ── Net ──
         t_now = pygame.time.get_ticks() * 0.001
         shake = math.sin(t_now * 14) * self.net_shake * 5
 
-        # Vertical strands fanning from rim to a narrowed bottom
         strands = 12
         for i in range(strands + 1):
             frac  = i / strands
             top_x = lx + frac * (rx - lx)
-            bot_x = (mid + (frac - 0.5) * 14
-                     + shake * (frac - 0.5) * 1.2)
+            bot_x = mid + (frac - 0.5) * 14 + shake * (frac - 0.5) * 1.2
             bot_y = ry + NET_H + self.net_shake * 7 * math.sin(frac * math.pi)
             pygame.draw.line(surf, C_NET,
                              (int(top_x), ry), (int(bot_x), int(bot_y)), 1)
 
-        # Horizontal rows (4 rows, converging)
         for row in range(1, 5):
-            t      = row / 5
-            y_row  = (ry + t * NET_H
-                      + self.net_shake * 5 * math.sin(t * math.pi + shake))
-            xl = lx + t * (mid - lx) + t * shake * 0.3
-            xr = rx + t * (mid - rx) - t * shake * 0.3
+            t     = row / 5
+            y_row = ry + t * NET_H + self.net_shake * 5 * math.sin(t * math.pi + shake)
+            xl    = lx + t * (mid - lx) + t * shake * 0.3
+            xr    = rx + t * (mid - rx) - t * shake * 0.3
             pygame.draw.line(surf, C_NET,
                              (int(xl), int(y_row)), (int(xr), int(y_row)), 1)
 
     # ── Collision detection ──────────────────────────
 
     def check_score(self, ball: "Ball", prev_y: float) -> bool:
-        """Ball centre crossed rim plane downward inside the scoring zone."""
         if ball.vy <= 0:
             return False
         if not (prev_y < self.y <= ball.y):
@@ -496,7 +622,6 @@ class Hoop:
         return abs(ball.x - self.x) <= RIM_HALF - BALL_R * 0.55
 
     def check_rim_collision(self, ball: "Ball") -> bool:
-        """Circle-circle bounce off left/right rim knobs."""
         bounced = False
         for (kx, ky) in [self.left_rim, self.right_rim]:
             dx, dy   = ball.x - kx, ball.y - ky
@@ -513,7 +638,6 @@ class Hoop:
         return bounced
 
     def check_backboard_collision(self, ball: "Ball") -> bool:
-        """Simple flat-face bounce off the front of the backboard."""
         face = BOARD_X - 14
         if (ball.vx > 0
                 and ball.x + BALL_R >= face
@@ -530,14 +654,14 @@ class Hoop:
 # ─────────────────────────────────────────────────────
 class Particle:
     def __init__(self, x: float, y: float, color: tuple):
-        a       = random.uniform(0, math.tau)
-        sp      = random.uniform(90, 265)
+        a            = random.uniform(0, math.tau)
+        sp           = random.uniform(90, 265)
         self.x, self.y = x, y
         self.vx, self.vy = sp * math.cos(a), sp * math.sin(a)
-        self.color = color
-        self.life  = random.uniform(0.4, 0.85)
-        self.max_l = self.life
-        self.r     = random.randint(3, 8)
+        self.color   = color
+        self.life    = random.uniform(0.4, 0.85)
+        self.max_l   = self.life
+        self.r       = random.randint(3, 8)
 
     def update(self, dt: float):
         self.x   += self.vx * dt
@@ -573,14 +697,14 @@ class FloatingText:
     def draw(self, surf: pygame.Surface):
         if self.life <= 0:
             return
-        alpha   = int(255 * min(1.0, self.life / self.max_life * 2))
+        alpha    = int(255 * min(1.0, self.life / self.max_life * 2))
         rendered = self.font.render(self.text, True, self.color)
         rendered.set_alpha(alpha)
         surf.blit(rendered, (int(self.x) - rendered.get_width() // 2, int(self.y)))
 
 
 # ─────────────────────────────────────────────────────
-# HUD & SCREEN DRAWING HELPERS
+# HUD & SCREEN HELPERS
 # ─────────────────────────────────────────────────────
 def draw_aim_arrow(surf: pygame.Surface,
                    origin: tuple, drag: tuple, power: float):
@@ -600,44 +724,49 @@ def draw_aim_arrow(surf: pygame.Surface,
 
 
 def draw_power_bar(surf: pygame.Surface, cx: float, cy: float, power: float):
-    bx, by = int(cx) - 30, int(cy) + 26
-    pygame.draw.rect(surf, (45, 45, 45),  pygame.Rect(bx,      by, 60,           8))
-    pygame.draw.rect(surf,
-                     (int(50 + 200 * power), int(200 - 150 * power), 30),
-                     pygame.Rect(bx, by, int(60 * power), 8))
-    pygame.draw.rect(surf, C_WHITE,       pygame.Rect(bx,      by, 60,           8), 1)
+    bx, by = int(cx) - 32, int(cy) + 27
+    pygame.draw.rect(surf, (30, 30, 30),   pygame.Rect(bx - 1,  by - 1, 66, 12))
+    pygame.draw.rect(surf, (55, 55, 55),   pygame.Rect(bx,      by,     64, 10))
+    fill_col = (int(50 + 200 * power), int(200 - 150 * power), 30)
+    pygame.draw.rect(surf, fill_col,        pygame.Rect(bx,      by,     int(64 * power), 10))
+    pygame.draw.rect(surf, C_WHITE,         pygame.Rect(bx - 1,  by - 1, 66, 12), 1)
 
 
 def draw_hud(surf: pygame.Surface, score: int, shots: int, combo: int,
              difficulty: str, wind: float, best: int,
              font_lg: pygame.font.Font, font_sm: pygame.font.Font):
-    panel = pygame.Surface((240, 150), pygame.SRCALPHA)
-    panel.fill((0, 0, 0, 160))
+    # Panel background with subtle gradient
+    panel = pygame.Surface((248, 158), pygame.SRCALPHA)
+    panel.fill((0, 0, 0, 0))
+    for py in range(158):
+        alpha = int(175 - py * 0.4)
+        pygame.draw.line(panel, (8, 8, 20, alpha), (0, py), (248, py))
+    pygame.draw.rect(panel, (80, 80, 120, 80), pygame.Rect(0, 0, 248, 158), 1)
     surf.blit(panel, (10, 10))
 
     acc      = (score * 100 // shots) if shots else 0
     diff_col = DIFFICULTIES[difficulty]["color"]
     diff_lbl = DIFFICULTIES[difficulty]["label"]
     rows = [
-        (f"Score:     {score}",             font_lg, C_WHITE),
-        (f"Shots:     {shots}/{MAX_SHOTS}", font_sm, C_WHITE),
-        (f"Accuracy:  {acc}%",              font_sm, C_WHITE),
-        (f"Best:      {best}",              font_sm, C_COMBO),
-        (f"Difficulty: {diff_lbl}",         font_sm, diff_col),
+        (f"Score:      {score}",             font_lg, C_WHITE),
+        (f"Shots:      {shots}/{MAX_SHOTS}", font_sm, (210, 210, 210)),
+        (f"Accuracy:   {acc}%",              font_sm, (210, 210, 210)),
+        (f"Best:       {best}",              font_sm, C_COMBO),
+        (f"Difficulty: {diff_lbl}",          font_sm, diff_col),
     ]
     for i, (text, font, col) in enumerate(rows):
-        surf.blit(font.render(text, True, col), (18, 14 + i * 26))
+        surf.blit(font.render(text, True, col), (20, 16 + i * 27))
 
-    # Wind bar
+    # Wind indicator
     if abs(wind) > 1:
-        wy = 168
-        surf.blit(font_sm.render("Wind:", True, C_WIND_C), (18, wy))
-        bw = min(int(abs(wind) * 0.5), 90)
-        bx = 70 if wind > 0 else 70 - bw
-        pygame.draw.rect(surf, C_WIND_C, pygame.Rect(bx, wy + 6, bw, 10))
+        wy = 173
+        surf.blit(font_sm.render("Wind:", True, C_WIND_C), (20, wy))
+        bw  = min(int(abs(wind) * 0.5), 90)
+        bx2 = 72 if wind > 0 else 72 - bw
+        pygame.draw.rect(surf, C_WIND_C, pygame.Rect(bx2, wy + 6, bw, 10))
         arr = ">>>" if wind > 0 else "<<<"
-        ax  = 70 + bw + 4 if wind > 0 else 70 - bw - 30
-        surf.blit(font_sm.render(arr, True, C_WIND_C), (ax, wy))
+        ax2 = 72 + bw + 4 if wind > 0 else 72 - bw - 30
+        surf.blit(font_sm.render(arr, True, C_WIND_C), (ax2, wy))
 
     # Combo banner
     if combo >= 2:
@@ -649,44 +778,67 @@ def draw_menu_screen(surf: pygame.Surface, best_score: int,
                      font_title: pygame.font.Font,
                      font_md: pygame.font.Font,
                      font_sm: pygame.font.Font,
-                     fullscreen: bool) -> dict[str, pygame.Rect]:
-    """Draw title + difficulty buttons. Returns {'easy':Rect, 'medium':Rect, 'hard':Rect}."""
-    surf.fill((10, 18, 10))
+                     fullscreen: bool) -> dict:
+    """Draw title + difficulty buttons. Returns button rect dict."""
+    # Gradient background (dark arena feel)
+    for y in range(SCREEN_H):
+        t = y / SCREEN_H
+        r = int(5  + 12 * t)
+        g = int(6  + 10 * t)
+        b = int(18 + 22 * t)
+        pygame.draw.line(surf, (r, g, b), (0, y), (SCREEN_W, y))
 
-    # Title
+    # Subtle court glow at bottom
+    glow = pygame.Surface((SCREEN_W, 200), pygame.SRCALPHA)
+    for gy in range(200):
+        alpha = int(28 * (1 - gy / 200))
+        pygame.draw.line(glow, (175, 115, 48, alpha), (0, gy), (SCREEN_W, gy))
+    surf.blit(glow, (0, SCREEN_H - 200))
+
+    # Title with shadow
+    shadow = font_title.render("BASKETBALL  FUN", True, (80, 30, 0))
+    surf.blit(shadow, (SCREEN_W // 2 - shadow.get_width() // 2 + 3, 68))
     title = font_title.render("BASKETBALL  FUN", True, C_ORANGE)
     surf.blit(title, (SCREEN_W // 2 - title.get_width() // 2, 65))
 
-    sub = font_md.render("Physics Shooting Game", True, (185, 185, 185))
+    sub = font_md.render("Physics Shooting Game", True, (170, 170, 170))
     surf.blit(sub, (SCREEN_W // 2 - sub.get_width() // 2, 142))
 
     # Best score
-    bs = font_md.render(f"Best Score:  {best_score}", True, C_COMBO)
-    surf.blit(bs, (SCREEN_W // 2 - bs.get_width() // 2, 192))
+    if best_score > 0:
+        bs = font_md.render(f"Best Score:  {best_score}", True, C_COMBO)
+        surf.blit(bs, (SCREEN_W // 2 - bs.get_width() // 2, 192))
 
-    # "Select difficulty" label
+    # Section label
     sd = font_md.render("SELECT  DIFFICULTY", True, C_WHITE)
-    surf.blit(sd, (SCREEN_W // 2 - sd.get_width() // 2, 262))
+    surf.blit(sd, (SCREEN_W // 2 - sd.get_width() // 2, 248))
 
-    # Difficulty buttons (3 side-by-side)
-    btn_w, btn_h = 210, 90
-    gap          = 28
+    # Difficulty buttons
+    btn_w, btn_h = 210, 88
+    gap          = 30
     total_w      = btn_w * 3 + gap * 2
     start_x      = SCREEN_W // 2 - total_w // 2
-    btn_y        = 310
+    btn_y        = 296
 
-    btns: dict[str, pygame.Rect] = {}
+    btns: dict = {}
     mx, my = pygame.mouse.get_pos()
 
     for i, key in enumerate(DIFF_ORDER):
-        cfg  = DIFFICULTIES[key]
-        bx   = start_x + i * (btn_w + gap)
-        rect = pygame.Rect(bx, btn_y, btn_w, btn_h)
+        cfg   = DIFFICULTIES[key]
+        bx    = start_x + i * (btn_w + gap)
+        rect  = pygame.Rect(bx, btn_y, btn_w, btn_h)
         btns[key] = rect
-
-        hover  = rect.collidepoint(mx, my)
+        hover = rect.collidepoint(mx, my)
         base_c = cfg["color"]
-        fill_c = tuple(min(255, c + 40) for c in base_c) if hover else base_c
+        fill_c = tuple(min(255, c + 45) for c in base_c) if hover else base_c
+
+        # Button shadow
+        shadow_r = pygame.Rect(bx + 3, btn_y + 4, btn_w, btn_h)
+        sh_surf = pygame.Surface((btn_w, btn_h), pygame.SRCALPHA)
+        sh_surf.fill((0, 0, 0, 0))
+        pygame.draw.rect(sh_surf, (0, 0, 0, 80), pygame.Rect(0, 0, btn_w, btn_h),
+                         border_radius=14)
+        surf.blit(sh_surf, (bx + 3, btn_y + 4))
 
         pygame.draw.rect(surf, fill_c,  rect, border_radius=14)
         pygame.draw.rect(surf, C_WHITE, rect, 2, border_radius=14)
@@ -695,26 +847,27 @@ def draw_menu_screen(surf: pygame.Surface, best_score: int,
         surf.blit(lbl, (rect.centerx - lbl.get_width() // 2,
                         rect.centery - lbl.get_height() // 2 - 8))
 
-        desc = font_sm.render(cfg["desc"], True, C_BLACK if hover else (200, 200, 200))
+        desc = font_sm.render(cfg["desc"], True,
+                              (40, 40, 40) if hover else (200, 200, 200))
         surf.blit(desc, (rect.centerx - desc.get_width() // 2,
                          rect.centery + 14))
 
     # Instructions
     lines = [
-        ("HOW  TO  PLAY", font_md, C_ORANGE),
-        ("Click + drag FROM the ball to aim  (slingshot)", font_sm, C_WHITE),
-        ("Longer drag  =  more power  ·  Release to shoot", font_sm, C_WHITE),
-        ("3 consecutive baskets  =  COMBO  (+2 pts each)", font_sm, C_COMBO),
-        ("R = restart     ESC = quit     F11 = fullscreen", font_sm, (160, 160, 160)),
+        ("HOW  TO  PLAY",                                    font_md, C_ORANGE),
+        ("Click + drag FROM the ball to aim  (slingshot)",   font_sm, C_WHITE),
+        ("Longer drag  =  more power  ·  Release to shoot",  font_sm, C_WHITE),
+        ("3 consecutive baskets  =  COMBO  (+2 pts each)",   font_sm, C_COMBO),
+        ("R = restart     ESC = quit     F11 = fullscreen",  font_sm, (150, 150, 150)),
     ]
     for i, (text, font, col) in enumerate(lines):
         t = font.render(text, True, col)
-        surf.blit(t, (SCREEN_W // 2 - t.get_width() // 2, 430 + i * 32))
+        surf.blit(t, (SCREEN_W // 2 - t.get_width() // 2, 418 + i * 32))
 
-    # Fullscreen status badge
     fs_text = "[ F11 ]  Fullscreen: ON" if fullscreen else "[ F11 ]  Fullscreen: OFF"
-    fs_surf = font_sm.render(fs_text, True, (120, 200, 120) if fullscreen else (160, 160, 160))
-    surf.blit(fs_surf, (SCREEN_W - fs_surf.get_width() - 14, SCREEN_H - 28))
+    fs_surf = font_sm.render(fs_text, True,
+                             (100, 200, 100) if fullscreen else (140, 140, 140))
+    surf.blit(fs_surf, (SCREEN_W - fs_surf.get_width() - 14, SCREEN_H - 26))
 
     return btns
 
@@ -725,15 +878,15 @@ def draw_game_over_screen(surf: pygame.Surface, score: int, shots: int,
                           font_md: pygame.font.Font,
                           font_sm: pygame.font.Font) -> pygame.Rect:
     overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
-    overlay.fill((0, 0, 0, 190))
+    overlay.fill((0, 0, 0, 195))
     surf.blit(overlay, (0, 0))
 
     go = font_title.render("GAME  OVER", True, (218, 42, 42))
-    surf.blit(go, (SCREEN_W // 2 - go.get_width() // 2, 105))
+    surf.blit(go, (SCREEN_W // 2 - go.get_width() // 2, 100))
 
     if new_best:
         nb = font_md.render("NEW  BEST  SCORE!", True, C_COMBO)
-        surf.blit(nb, (SCREEN_W // 2 - nb.get_width() // 2, 178))
+        surf.blit(nb, (SCREEN_W // 2 - nb.get_width() // 2, 172))
 
     acc    = (score * 100 // shots) if shots else 0
     rating = ("PERFECT!" if acc == 100 else
@@ -749,9 +902,9 @@ def draw_game_over_screen(surf: pygame.Surface, score: int, shots: int,
     ]
     for i, (text, font, col) in enumerate(stats):
         t = font.render(text, True, col)
-        surf.blit(t, (SCREEN_W // 2 - t.get_width() // 2, 225 + i * 52))
+        surf.blit(t, (SCREEN_W // 2 - t.get_width() // 2, 220 + i * 52))
 
-    btn = pygame.Rect(SCREEN_W // 2 - 125, 510, 250, 58)
+    btn = pygame.Rect(SCREEN_W // 2 - 125, 508, 250, 58)
     pygame.draw.rect(surf, C_ORANGE, btn, border_radius=12)
     pygame.draw.rect(surf, C_WHITE,  btn, 2, border_radius=12)
     bt = font_md.render("PLAY  AGAIN", True, C_BLACK)
@@ -767,104 +920,87 @@ class Game:
     """
     State machine:  "menu"  →  "play"  →  "gameover"  →  "menu"
 
-    Fixes vs v1
-    ───────────
-    • Hoop movement and wind are SET when the game starts (not after the
-      first shot).  Wind re-randomises between shots, still within the
-      chosen difficulty range.
-    • Difficulty is chosen upfront on the menu – no gradual escalation.
-    • Best score is loaded from disk and saved on game-over.
-    • F11 toggles true fullscreen via pygame.SCALED (internal res fixed).
+    Key design decisions
+    ────────────────────
+    • Hoop movement and wind are active from game START (not after first shot).
+    • Wind re-randomises between shots within the chosen difficulty range.
+    • F11 toggles fullscreen via pygame.SCALED (internal res stays fixed).
+    • Best score is persisted to best_score.json.
     """
 
     def __init__(self):
         pygame.init()
-        # Use SCALED so the 960×620 canvas fills any monitor in fullscreen
-        self._fs_flags = pygame.SCALED
+        self._fs_flags  = pygame.SCALED
         self.screen     = pygame.display.set_mode(
             (SCREEN_W, SCREEN_H), self._fs_flags)
         pygame.display.set_caption("Basketball Fun Game")
         self.clock      = pygame.time.Clock()
         self.fullscreen = False
 
-        # Fonts
         self.f_title = pygame.font.SysFont("Arial", 62, bold=True)
         self.f_lg    = pygame.font.SysFont("Arial", 26, bold=True)
         self.f_md    = pygame.font.SysFont("Arial", 36, bold=True)
         self.f_sm    = pygame.font.SysFont("Arial", 20)
 
-        # Precomputed surfaces (requires pygame.init to be done first)
-        self._arena_bg    = _build_arena_bg()
-        self._floor_surf  = _build_floor_surf()
+        # Build precomputed surfaces AFTER pygame.init()
+        self._arena_bg   = _build_arena_bg()
+        self._floor_surf = _build_floor_surf()
         self._ball_tmpl, self._ball_tmpl_off = _build_ball_template(BALL_R)
 
-        self.sounds = SoundManager()
-
+        self.sounds     = SoundManager()
         self.best_score = load_best_score()
         self.state      = "menu"
-        self.difficulty = "medium"          # default selection
-        self._diff_btns: dict[str, pygame.Rect] = {}
-        self._restart_btn: pygame.Rect | None   = None
+        self.difficulty = "medium"
+
+        self._diff_btns: dict   = {}
+        self._restart_btn       = None
 
         self._init_game("medium")
 
-    # ─── Display ──────────────────────────────────────
+    # ── Display ───────────────────────────────────────
 
     def toggle_fullscreen(self):
         self.fullscreen = not self.fullscreen
-        flags = pygame.FULLSCREEN | pygame.SCALED if self.fullscreen else self._fs_flags
+        flags = (pygame.FULLSCREEN | pygame.SCALED
+                 if self.fullscreen else self._fs_flags)
         self.screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), flags)
 
-    # ─── Game initialisation ──────────────────────────
+    # ── Game reset ────────────────────────────────────
 
     def _init_game(self, difficulty: str):
-        """
-        Reset all game state and immediately apply difficulty settings so
-        the hoop is ALREADY moving and wind is ALREADY set before the
-        first shot – not triggered by it.
-        """
-        self.difficulty  = difficulty
-        self.ball        = Ball(self._ball_tmpl, self._ball_tmpl_off)
-        self.hoop        = Hoop()
-        self.score       = 0
-        self.shots       = 0
-        self.combo       = 0
-        self.new_best    = False
-
-        self.particles:  list[Particle]     = []
-        self.floats:     list[FloatingText] = []
-
-        self.dragging    = False
-        self.drag_start  = (0, 0)
-        self.drag_cur    = (0, 0)
-
+        self.difficulty    = difficulty
+        self.ball          = Ball(self._ball_tmpl, self._ball_tmpl_off)
+        self.hoop          = Hoop()
+        self.score         = 0
+        self.shots         = 0
+        self.combo         = 0
+        self.new_best      = False
+        self.particles: list[Particle]     = []
+        self.floats:    list[FloatingText] = []
+        self.dragging      = False
+        self.drag_start    = (0, 0)
+        self.drag_cur      = (0, 0)
         self.waiting_reset = False
         self.reset_timer   = 0.0
         self.scored_shot   = False
-
-        # Apply difficulty IMMEDIATELY – hoop moves and wind blows from the start
+        # Apply difficulty immediately so hoop moves and wind blows before shot 1
         self._apply_difficulty()
 
     def _apply_difficulty(self):
-        """Set hoop speed and wind from the current difficulty preset."""
         cfg = DIFFICULTIES[self.difficulty]
         self.hoop.set_moving(cfg["hoop_speed"])
         self.wind = self._new_wind()
 
     def _new_wind(self) -> float:
-        """Return a new random wind within the current difficulty range."""
         wm = DIFFICULTIES[self.difficulty]["wind_max"]
-        if wm == 0:
-            return 0.0
-        return random.uniform(-wm, wm)
+        return random.uniform(-wm, wm) if wm else 0.0
 
-    # ─── Input ────────────────────────────────────────
+    # ── Input ─────────────────────────────────────────
 
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self._quit()
-
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     self._quit()
@@ -891,7 +1027,6 @@ class Game:
 
     def _handle_play_input(self, event: pygame.event.Event):
         bx, by = int(self.ball.x), int(self.ball.y)
-
         if (event.type == pygame.MOUSEBUTTONDOWN
                 and not self.ball.in_flight
                 and not self.waiting_reset):
@@ -899,10 +1034,8 @@ class Game:
                 self.dragging   = True
                 self.drag_start = event.pos
                 self.drag_cur   = event.pos
-
         elif event.type == pygame.MOUSEMOTION and self.dragging:
             self.drag_cur = event.pos
-
         elif event.type == pygame.MOUSEBUTTONUP and self.dragging:
             self.dragging = False
             self._fire_shot()
@@ -910,31 +1043,26 @@ class Game:
     def _fire_shot(self):
         if self.shots >= MAX_SHOTS:
             return
-        sx, sy  = self.drag_start
-        ex, ey  = self.drag_cur
-        dx, dy  = sx - ex, sy - ey
-        dist    = math.hypot(dx, dy)
+        sx, sy = self.drag_start
+        ex, ey = self.drag_cur
+        dx, dy = sx - ex, sy - ey
+        dist   = math.hypot(dx, dy)
         if dist < 12:
             return
-
-        # atan2(-dy, dx): convert screen-y to maths-y
         angle = math.degrees(math.atan2(-dy, dx))
         power = min(dist / MAX_DRAG, 1.0)
         speed = MIN_POWER + power * (MAX_POWER - MIN_POWER)
-
         self.ball.shoot(angle, speed, wind=self.wind)
-        self.shots      += 1
-        self.scored_shot = False
-
-        # Change wind for the NEXT shot (current shot already in the air)
+        self.shots       += 1
+        self.scored_shot  = False
+        # Change wind for the NEXT shot after this one lands
         self.wind = self._new_wind()
 
-    # ─── Update ───────────────────────────────────────
+    # ── Update ────────────────────────────────────────
 
     def update(self, dt: float):
         if self.state != "play":
             return
-
         self.hoop.update(dt)
 
         if self.ball.in_flight:
@@ -943,10 +1071,8 @@ class Game:
 
             if not self.scored_shot and self.hoop.check_score(self.ball, prev_y):
                 self._on_score()
-
             if self.hoop.check_rim_collision(self.ball):
                 self.sounds.play("bounce")
-
             if self.hoop.check_backboard_collision(self.ball):
                 self.sounds.play("bounce")
 
@@ -973,15 +1099,15 @@ class Game:
                     lst.remove(obj)
 
     def _on_score(self):
-        self.scored_shot = True
-        self.combo      += 1
-        pts              = 2 if self.combo >= 3 else 1
-        self.score      += pts
+        self.scored_shot    = True
+        self.combo         += 1
+        pts                 = 2 if self.combo >= 3 else 1
+        self.score         += pts
         self.hoop.net_shake = 1.0
         self.sounds.play("swish")
 
         colours = [C_ORANGE, C_COMBO, C_WHITE, (255, 80, 80), (80, 200, 255)]
-        for _ in range(38):
+        for _ in range(40):
             self.particles.append(
                 Particle(self.hoop.x, self.hoop.y, random.choice(colours)))
 
@@ -997,14 +1123,13 @@ class Game:
         self.reset_timer   = 1.8
 
     def _end_game(self):
-        """Called when all shots are used. Save best score and switch state."""
         if self.score > self.best_score:
             self.best_score = self.score
             self.new_best   = True
             save_best_score(self.best_score)
         self.state = "gameover"
 
-    # ─── Draw ─────────────────────────────────────────
+    # ── Draw ──────────────────────────────────────────
 
     def draw(self):
         if self.state == "menu":
@@ -1014,15 +1139,9 @@ class Game:
                 self.fullscreen)
 
         elif self.state in ("play", "gameover"):
-            # ── Background + floor ──
-            self.screen.blit(self._arena_bg, (0, 0))
+            # Background arena + hardwood floor
+            self.screen.blit(self._arena_bg,   (0, 0))
             self.screen.blit(self._floor_surf, (0, FLOOR_Y))
-
-            # ── Court markings on floor ──
-            # Three-point arc visible on floor
-            pygame.draw.arc(self.screen, (155, 96, 38),
-                            pygame.Rect(BALL_X0 - 85, FLOOR_Y - 310, 430, 390),
-                            math.radians(12), math.radians(168), 2)
 
             self.hoop.draw(self.screen)
 
@@ -1031,7 +1150,7 @@ class Game:
 
             self.ball.draw(self.screen)
 
-            # ── Aim overlay ──
+            # Aim overlay
             if self.dragging and not self.ball.in_flight:
                 sx, sy = self.drag_start
                 ex, ey = self.drag_cur
@@ -1040,7 +1159,6 @@ class Game:
                 draw_aim_arrow(self.screen, (sx, sy), (ex, ey), power)
                 draw_power_bar(self.screen, self.ball.x, self.ball.y, power)
 
-            # ── HUD ──
             draw_hud(self.screen, self.score, self.shots, self.combo,
                      self.difficulty, self.wind, self.best_score,
                      self.f_lg, self.f_sm)
@@ -1048,14 +1166,13 @@ class Game:
             for ft in self.floats:
                 ft.draw(self.screen)
 
-            # Shots remaining
             left = MAX_SHOTS - self.shots
             rt   = self.f_sm.render(f"Shots remaining: {left}", True, C_WHITE)
             self.screen.blit(rt, (SCREEN_W - rt.get_width() - 14, SCREEN_H - 30))
 
-            # Hint / wind direction banner
             if not self.ball.in_flight and not self.waiting_reset and not self.dragging:
-                hint = self.f_sm.render("Click + drag ball to shoot", True, (160, 160, 160))
+                hint = self.f_sm.render("Click + drag ball to shoot",
+                                        True, (155, 155, 155))
                 self.screen.blit(hint,
                                  (SCREEN_W // 2 - hint.get_width() // 2, SCREEN_H - 30))
 
@@ -1073,7 +1190,7 @@ class Game:
 
         pygame.display.flip()
 
-    # ─── Loop ─────────────────────────────────────────
+    # ── Loop ──────────────────────────────────────────
 
     def run(self):
         while True:
